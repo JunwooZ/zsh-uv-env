@@ -1,6 +1,6 @@
 # Function to check if a virtualenv is already activated
 is_venv_active() {
-    [[ -n "$VIRTUAL_ENV" ]] && return 0
+    [[ -n "${VIRTUAL_ENV:-}" ]] && return 0
     return 1
 }
 
@@ -8,13 +8,39 @@ is_venv_active() {
 typeset -g _ZSH_UV_ENV_LAST_VENV=""
 typeset -g _ZSH_UV_ENV_LAST_DIR=""
 
+_zsh_uv_env_is_within_dir() {
+    local current_dir="$1"
+    local parent_dir="$2"
+
+    [[ -n "$parent_dir" ]] || return 1
+    [[ "$current_dir" == "$parent_dir" || "$current_dir" == "$parent_dir"/* ]]
+}
+
+_zsh_uv_env_is_valid_venv() {
+    local venv_path="$1"
+
+    [[ -d "$venv_path" && -r "$venv_path/bin/activate" ]]
+}
+
 # Function to find nearest .venv directory
 find_venv() {
     local current_dir="$PWD"
-    # If current directory is a subdirectory of the last searched directory and a venv was found before, return cached result directly
-    if [[ "$current_dir" == "$_ZSH_UV_ENV_LAST_DIR"* ]] && [[ -n "$_ZSH_UV_ENV_LAST_VENV" ]] && [[ -d "$_ZSH_UV_ENV_LAST_VENV" ]]; then
+
+    if _zsh_uv_env_is_within_dir "$current_dir" "$_ZSH_UV_ENV_LAST_DIR" && _zsh_uv_env_is_valid_venv "$_ZSH_UV_ENV_LAST_VENV"; then
+        local probe_dir="$current_dir"
+
+        while [[ "$probe_dir" != "$_ZSH_UV_ENV_LAST_DIR" ]]; do
+            if _zsh_uv_env_is_valid_venv "$probe_dir/.venv"; then
+                _ZSH_UV_ENV_LAST_VENV="$probe_dir/.venv"
+                _ZSH_UV_ENV_LAST_DIR="$probe_dir"
+                return 0
+            fi
+            probe_dir="$(dirname "$probe_dir")"
+        done
+
         return 0
     fi
+
     # Reset cache
     _ZSH_UV_ENV_LAST_VENV=""
     _ZSH_UV_ENV_LAST_DIR=""
@@ -24,12 +50,12 @@ find_venv() {
     local stop_dir="$root_dir"
 
     # If we're under home directory, stop at home
-    if [[ "$current_dir" == "$home_dir"* ]]; then
+    if _zsh_uv_env_is_within_dir "$current_dir" "$home_dir"; then
         stop_dir="$home_dir"
     fi
 
     while [[ "$current_dir" != "$stop_dir" ]]; do
-        if [[ -d "$current_dir/.venv" ]]; then
+        if _zsh_uv_env_is_valid_venv "$current_dir/.venv"; then
             # Update cache after finding venv
             _ZSH_UV_ENV_LAST_VENV="$current_dir/.venv"
             _ZSH_UV_ENV_LAST_DIR="$current_dir"
@@ -39,7 +65,7 @@ find_venv() {
     done
 
     # Check stop_dir itself
-    if [[ -d "$stop_dir/.venv" ]]; then
+    if _zsh_uv_env_is_valid_venv "$stop_dir/.venv"; then
         # Update cache after finding venv
         _ZSH_UV_ENV_LAST_VENV="$stop_dir/.venv"
         _ZSH_UV_ENV_LAST_DIR="$stop_dir"
@@ -63,10 +89,15 @@ autoenv_chpwd() {
     local venv_path="$_ZSH_UV_ENV_LAST_VENV"
 
     if [[ -n "$venv_path" ]]; then
-        # If we found a venv and none is active, activate it
-        if ! is_venv_active; then
-            source "$venv_path/bin/activate"
-            AUTOENV_ACTIVATED=1
+        if [[ "${VIRTUAL_ENV:-}" != "$venv_path" ]]; then
+            if [[ $AUTOENV_ACTIVATED == 1 ]] && is_venv_active; then
+                deactivate
+                AUTOENV_ACTIVATED=0
+            fi
+
+            if ! is_venv_active && source "$venv_path/bin/activate"; then
+                AUTOENV_ACTIVATED=1
+            fi
         fi
     else
         # If no venv found and we activated one before, deactivate it
@@ -77,7 +108,7 @@ autoenv_chpwd() {
     fi
 }
 
-# Register chpwd hook to watch for new venv creation
+# Register chpwd hook to check directories after cd
 autoload -U add-zsh-hook
 add-zsh-hook chpwd autoenv_chpwd
 
