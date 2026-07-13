@@ -35,7 +35,7 @@ find_venv() {
                 _ZSH_UV_ENV_LAST_DIR="$probe_dir"
                 return 0
             fi
-            probe_dir="$(dirname "$probe_dir")"
+            probe_dir="${probe_dir:h}"
         done
 
         return 0
@@ -61,7 +61,7 @@ find_venv() {
             _ZSH_UV_ENV_LAST_DIR="$current_dir"
             return 0
         fi
-        current_dir="$(dirname "$current_dir")"
+        current_dir="${current_dir:h}"
     done
 
     # Check stop_dir itself
@@ -76,10 +76,17 @@ find_venv() {
 }
 
 # Variable to track if we activated the venv
-typeset -g AUTOENV_ACTIVATED=0
+typeset -g AUTOENV_ACTIVATED="${AUTOENV_ACTIVATED:-0}"
+typeset -g _ZSH_UV_ENV_ACTIVE_VENV="${_ZSH_UV_ENV_ACTIVE_VENV:-}"
 
 # Function to handle directory changes
 autoenv_chpwd() {
+    # Drop stale ownership if the user deactivated or replaced our venv.
+    if [[ $AUTOENV_ACTIVATED == 1 && "${VIRTUAL_ENV:-}" != "$_ZSH_UV_ENV_ACTIVE_VENV" ]]; then
+        AUTOENV_ACTIVATED=0
+        _ZSH_UV_ENV_ACTIVE_VENV=""
+    fi
+
     # Don't do anything if a virtualenv is already manually activated
     if is_venv_active && [[ $AUTOENV_ACTIVATED == 0 ]]; then
         return
@@ -93,10 +100,15 @@ autoenv_chpwd() {
             if [[ $AUTOENV_ACTIVATED == 1 ]] && is_venv_active; then
                 deactivate
                 AUTOENV_ACTIVATED=0
+                _ZSH_UV_ENV_ACTIVE_VENV=""
             fi
 
-            if ! is_venv_active && source "$venv_path/bin/activate"; then
-                AUTOENV_ACTIVATED=1
+            if ! is_venv_active; then
+                source "$venv_path/bin/activate"
+                if [[ "${VIRTUAL_ENV:-}" == "$venv_path" ]]; then
+                    AUTOENV_ACTIVATED=1
+                    _ZSH_UV_ENV_ACTIVE_VENV="$venv_path"
+                fi
             fi
         fi
     else
@@ -104,6 +116,7 @@ autoenv_chpwd() {
         if [[ $AUTOENV_ACTIVATED == 1 ]] && is_venv_active; then
             deactivate
             AUTOENV_ACTIVATED=0
+            _ZSH_UV_ENV_ACTIVE_VENV=""
         fi
     fi
 }

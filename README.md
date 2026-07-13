@@ -32,4 +32,8 @@ This repository is a modified version of the original [zsh-uv-env](https://githu
 
 The plugin automatically detects and activates Python virtual environments (.venv
 directories) as you navigate through your filesystem. When you leave a directory with an
-active virtual environment, it automatically deactivates it.
+environment that the plugin activated, it automatically deactivates it. Environments that
+you activate manually are left unchanged.
+
+The plugin activates an environment by sourcing its `.venv/bin/activate` file. Only use
+the plugin in directories you trust, because activation files contain executable shell code.
